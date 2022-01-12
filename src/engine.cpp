@@ -22,6 +22,13 @@
 #include "sys.h"
 #include "parts.h"
 
+
+#ifdef GAME_TITLE
+static const char * title = GAME_TITLE;
+#else
+static const char * title = "Raw - Another World Interpreter";
+#endif
+
 Engine::Engine(System *paramSys, const char *dataDir, const char *saveDir)
 	: sys(paramSys), vm(&mixer, &res, &player, &video, sys), mixer(sys), res(&video, dataDir), 
 	player(&mixer, &res, sys), video(&res, sys), _dataDir(dataDir), _saveDir(saveDir), _stateSlot(0) {
@@ -36,6 +43,8 @@ void Engine::run() {
 		vm.inp_updatePlayer();
 
 		processInput();
+
+		sys->pollAudio();
 
 		vm.hostFrame();
 	}
@@ -54,7 +63,7 @@ void Engine::init() {
 
 
 	//Init system
-	sys->init("Out Of This World");
+	sys->init(title);
 
 	video.init();
 

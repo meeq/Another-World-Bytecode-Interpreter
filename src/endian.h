@@ -64,8 +64,10 @@
 #endif
 
 
-#if defined SYS_LITTLE_ENDIAN
-//#warning "LITTLE ENDIAN SELECTED"
+#if defined(SYS_LITTLE_ENDIAN) || defined(_N64)
+// N64 is Big-Endian, but cannot load unaligned words, so it is more reliable
+// to load 16/32-bit values byte-wise and reconstruct them with bit-shifting.
+
 inline uint16_t READ_BE_UINT16(const void *ptr) {
 	const uint8_t *b = (const uint8_t *)ptr;
 	return (b[0] << 8) | b[1];
@@ -76,8 +78,7 @@ inline uint32_t READ_BE_UINT32(const void *ptr) {
 	return (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3];
 }
 
-#elif defined SYS_BIG_ENDIAN
-//#warning "BIG ENDIAN SELECTED"
+#elif defined(SYS_BIG_ENDIAN)
 
 inline uint16_t READ_BE_UINT16(const void *ptr) {
 	return *(const uint16_t *)ptr;

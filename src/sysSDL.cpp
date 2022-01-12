@@ -31,7 +31,7 @@ struct SDLStub : System {
 	};
 
 	int DEFAULT_SCALE = 3;
-
+	const char * _title = nullptr;
 	SDL_Surface *_screen = nullptr;
 	SDL_Window * _window = nullptr;
 	SDL_Renderer * _renderer = nullptr;
@@ -48,6 +48,7 @@ struct SDLStub : System {
 	virtual void startAudio(AudioCallback callback, void *param);
 	virtual void stopAudio();
 	virtual uint32_t getOutputSampleRate();
+	virtual void pollAudio() {};
 	virtual int addTimer(uint32_t delay, TimerCallback callback, void *param);
 	virtual void removeTimer(int timerId);
 	virtual void *createMutex();
@@ -61,6 +62,7 @@ struct SDLStub : System {
 };
 
 void SDLStub::init(const char *title) {
+	_title = title;
 	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER);
 //	SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY, SDL_DEFAULT_REPEAT_INTERVAL);
 	SDL_ShowCursor(SDL_DISABLE);
@@ -98,7 +100,7 @@ void SDLStub::prepareGfxMode() {
   int w = SCREEN_W;
   int h = SCREEN_H;
 
-  _window = SDL_CreateWindow("Another World", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w * _scale, h * _scale, SDL_WINDOW_SHOWN);
+  _window = SDL_CreateWindow(_title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w * _scale, h * _scale, SDL_WINDOW_SHOWN);
   _renderer = SDL_CreateRenderer(_window, -1, 0);
   _screen = SDL_CreateRGBSurface(SDL_SWSURFACE, w, h, 8, 0, 0, 0, 0);
   if (!_screen) {

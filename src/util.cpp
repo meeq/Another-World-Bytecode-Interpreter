@@ -29,8 +29,13 @@ void debug(uint16_t cm, const char *msg, ...) {
 		va_start(va, msg);
 		vsprintf(buf, msg, va);
 		va_end(va);
+#if defined(_N64)
+		// N64 has no stdout; print to the debug interfaces instead
+		fprintf(stderr, "DEBUG: %s\n", buf);
+#else
 		printf("%s\n", buf);
 		fflush(stdout);
+#endif
 	}
 }
 

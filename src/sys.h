@@ -67,6 +67,7 @@ struct System {
 	virtual void startAudio(AudioCallback callback, void *param) = 0;
 	virtual void stopAudio() = 0;
 	virtual uint32_t getOutputSampleRate() = 0;
+	virtual void pollAudio() = 0;
 	
 	virtual int addTimer(uint32_t delay, TimerCallback callback, void *param) = 0;
 	virtual void removeTimer(int timerId) = 0;

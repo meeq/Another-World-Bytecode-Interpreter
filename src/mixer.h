@@ -28,14 +28,6 @@ struct MixerChunk {
 	uint16_t loopLen;
 };
 
-struct MixerChannel {
-	uint8_t active;
-	uint8_t volume;
-	MixerChunk chunk;
-	uint32_t chunkPos;
-	uint32_t chunkInc;
-};
-
 struct Serializer;
 struct System;
 
@@ -50,7 +42,6 @@ struct Mixer {
 	// Since the virtal machine and SDL are running simultaneously in two different threads
 	// any read or write to an elements of the sound channels MUST be synchronized with a 
 	// mutex.
-	MixerChannel _channels[AUDIO_NUM_CHANNELS];
 
 	Mixer(System *stub);
 	void init();

@@ -20,6 +20,18 @@
 #include "sys.h"
 #include "util.h"
 
+#if defined(_N64)
+
+static const char * N64_ROM_PATH = "rom:/";
+static const char * N64_EEPROM_PATH = "eeprom:/";
+
+static int parseArgs(int argc, char *argv[], const char **dataPath, const char **savePath) {
+	*dataPath = N64_ROM_PATH;
+	*savePath = N64_EEPROM_PATH;
+	return 0;
+}
+
+#else
 
 static const char *USAGE = 
 	"Raw - Another World Interpreter\n"
@@ -38,6 +50,24 @@ static bool parseOption(const char *arg, const char *longCmd, const char **opt) 
 	return ret;
 }
 
+static int parseArgs(int argc, char *argv[], const char **dataPath, const char **savePath) {
+	for (int i = 1; i < argc; ++i) {
+		bool opt = false;
+		if (strlen(argv[i]) >= 2) {
+			opt |= parseOption(argv[i], "datapath=", dataPath);
+			opt |= parseOption(argv[i], "savepath=", savePath);
+
+		}
+		if (!opt) {
+			printf("%s",USAGE);
+			return 1;
+		}
+	}
+	return 0;
+}
+
+#endif
+
 /*
 	We use here a design pattern found in Doom3:
 	An Abstract Class pointer pointing to the implementation on the Heap.
@@ -49,18 +79,9 @@ extern System *stub ;//= System_SDL_create();
 int main(int argc, char *argv[]) {
 	const char *dataPath = ".";
 	const char *savePath = ".";
-	for (int i = 1; i < argc; ++i) {
-		bool opt = false;
-		if (strlen(argv[i]) >= 2) {
-			opt |= parseOption(argv[i], "datapath=", &dataPath);
-			opt |= parseOption(argv[i], "savepath=", &savePath);
-
-		}
-		if (!opt) {
-			printf("%s",USAGE);
-			return 0;
-		}
-	}
+	int exitCode = parseArgs(argc, argv, &dataPath, &savePath);
+	if (exitCode) return exitCode;
+	
 	//FCS
 	//g_debugMask = DBG_INFO; // DBG_VM | DBG_BANK | DBG_VIDEO | DBG_SER | DBG_SND
 	//g_debugMask = 0 ;//DBG_INFO |  DBG_VM | DBG_BANK | DBG_VIDEO | DBG_SER | DBG_SND ;

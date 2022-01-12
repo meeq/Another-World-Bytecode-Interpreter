@@ -8,7 +8,11 @@ TODO
 **/*.suo
 **/*.user
 **.[ado]
+**/raw.s[0-9][0-9]
 /game
+/build*
+!/build*.bash
+/.vscode
 
 .DS_Store
 DerivedData
