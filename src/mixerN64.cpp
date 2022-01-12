@@ -22,7 +22,12 @@
 #include "serializer.h"
 #include "sys.h"
 
-#define VOLUME_BYTE_TO_FLOAT(x) ((float)(x) / 128.0f);
+static inline float volume_byte_to_float(uint8_t byte) {
+	float vol = (float)byte / 255.0f;
+	if (vol > 1.0f) return 1.0f;
+	if (vol < 0.0f) return 0.0f;
+	return vol;
+}
 
 struct MixerChannel {
 	bool active;
@@ -70,8 +75,13 @@ void Mixer::playChannel(uint8_t channel, const MixerChunk *mc, uint16_t freq, ui
 	ch->wave.channels = 1;
 	ch->wave.bits = 8;
 	ch->wave.frequency = freq;
-	ch->wave.len = mc->len;
-	ch->wave.loop_len = mc->loopLen;
+	if (mc->loopLen) {
+		ch->wave.len = mc->loopPos + mc->loopLen;
+		ch->wave.loop_len = mc->loopLen;
+	} else {
+		ch->wave.len = mc->len;
+		ch->wave.loop_len = 0;
+	}
 	ch->wave.read = &MixerChannel::read;
 	ch->wave.ctx = ch;
 
@@ -79,8 +89,8 @@ void Mixer::playChannel(uint8_t channel, const MixerChunk *mc, uint16_t freq, ui
 
 	if (ch->volume != volume) {
 		ch->volume = volume;
-		float volume_float = VOLUME_BYTE_TO_FLOAT(volume);
-		mixer_ch_set_vol(channel, volume_float, volume_float);
+		float vol_float = volume_byte_to_float(volume);
+		mixer_ch_set_vol(channel, vol_float, vol_float);
 	}
 }
 
@@ -99,8 +109,8 @@ void Mixer::setChannelVolume(uint8_t channel, uint8_t volume) {
 	MixerChannel *ch = &_channels[channel];
 	if (ch->volume != volume) {
 		ch->volume = volume;
-		float volume_float = VOLUME_BYTE_TO_FLOAT(volume);
-		mixer_ch_set_vol(channel, volume_float, volume_float);
+		float vol_float = volume_byte_to_float(volume);
+		mixer_ch_set_vol(channel, vol_float, vol_float);
 	}
 }
 
@@ -125,7 +135,10 @@ void Mixer::saveOrLoad(Serializer &ser) {
 	sys->lockMutex(_mutex);
 	for (int i = 0; i < AUDIO_NUM_CHANNELS; ++i) {
 		MixerChannel *ch = &_channels[i];
-		uint32_t chunkPos = mixer_ch_get_pos(i);
+		uint32_t chunkPos;
+		if (ser._mode == Serializer::SM_SAVE && ch->active) {
+			chunkPos = mixer_ch_get_pos(i);
+		}
 		Serializer::Entry entries[] = {
 			SE_INT(&ch->active, Serializer::SES_BOOL, VER(2)),
 			SE_INT(&ch->volume, Serializer::SES_INT8, VER(2)),
@@ -141,8 +154,8 @@ void Mixer::saveOrLoad(Serializer &ser) {
 		if (ser._mode == Serializer::SM_LOAD && ch->active) {
 			mixer_ch_play(i, &ch->wave);
 			mixer_ch_set_pos(i, chunkPos);
-			float volume_float = VOLUME_BYTE_TO_FLOAT(ch->volume);
-			mixer_ch_set_vol(i, volume_float, volume_float);
+			float vol_float = volume_byte_to_float(ch->volume);
+			mixer_ch_set_vol(i, vol_float, vol_float);
 		}
 	}
 	sys->unlockMutex(_mutex);
