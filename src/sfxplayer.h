@@ -64,7 +64,7 @@ struct SfxPlayer {
 	SfxModule _sfxMod;
 	int16_t *_markVar;
 
-	SfxPlayer(Mixer *mix, Resource *res, System *stub);
+	SfxPlayer(Mixer *mix, Resource *resource, System *stub);
 	void init();
 	void free();
 
