@@ -33,7 +33,6 @@ struct MixerChannel {
 	bool active;
 	uint8_t volume;
 	MixerChunk chunk;
-	uint32_t chunkInc;
 	waveform_t wave;
 
 	static void read(void *ctx, samplebuffer_t *sbuf, int wpos, int wlen, bool seeking) {
@@ -71,7 +70,6 @@ void Mixer::playChannel(uint8_t channel, const MixerChunk *mc, uint16_t freq, ui
 	MixerChannel *ch = &_channels[channel];
 	ch->active = true;
 	ch->chunk = *mc;
-	ch->chunkInc = (freq << 8) / sys->getOutputSampleRate();
 	ch->wave.channels = 1;
 	ch->wave.bits = 8;
 	ch->wave.frequency = freq;
@@ -124,26 +122,32 @@ void Mixer::stopAll() {
 }
 
 void Mixer::mix(int8_t *buf, int len) {
-	// Intentionally left blank
+	// Intentionally left blank.
+	// This is handled by N64Stub::pollAudio
 }
 
 void Mixer::mixCallback(void *param, uint8_t *buf, int len) {
-	// Intentionally left blank
+	// Intentionally left blank.
+	// This is handled by N64Stub::pollAudio 
 }
 
 void Mixer::saveOrLoad(Serializer &ser) {
 	sys->lockMutex(_mutex);
 	for (int i = 0; i < AUDIO_NUM_CHANNELS; ++i) {
 		MixerChannel *ch = &_channels[i];
-		uint32_t chunkPos;
+		uint32_t chunkPos = 0;
+		uint32_t chunkInc = 0;
 		if (ser._mode == Serializer::SM_SAVE && ch->active) {
+			uint16_t freq = ch->wave.frequency;
 			chunkPos = mixer_ch_get_pos(i);
+			// Use chunkInc to be compatible with SDL mixer save format
+			chunkInc = (freq << 8) / sys->getOutputSampleRate();
 		}
 		Serializer::Entry entries[] = {
 			SE_INT(&ch->active, Serializer::SES_BOOL, VER(2)),
 			SE_INT(&ch->volume, Serializer::SES_INT8, VER(2)),
 			SE_INT(&chunkPos, Serializer::SES_INT32, VER(2)),
-			SE_INT(&ch->chunkInc, Serializer::SES_INT32, VER(2)),
+			SE_INT(&chunkInc, Serializer::SES_INT32, VER(2)),
 			SE_PTR(&ch->chunk.data, VER(2)),
 			SE_INT(&ch->chunk.len, Serializer::SES_INT16, VER(2)),
 			SE_INT(&ch->chunk.loopPos, Serializer::SES_INT16, VER(2)),
@@ -152,8 +156,11 @@ void Mixer::saveOrLoad(Serializer &ser) {
 		};
 		ser.saveOrLoadEntries(entries);
 		if (ser._mode == Serializer::SM_LOAD && ch->active) {
-			mixer_ch_play(i, &ch->wave);
+			// Use chunkInc to be compatible with SDL mixer save format
+			uint16_t freq = (chunkInc * sys->getOutputSampleRate()) >> 8;
+			playChannel(i, &ch->chunk, freq, ch->volume);
 			mixer_ch_set_pos(i, chunkPos);
+			// Override channel volume cache check
 			float vol_float = volume_byte_to_float(ch->volume);
 			mixer_ch_set_vol(i, vol_float, vol_float);
 		}

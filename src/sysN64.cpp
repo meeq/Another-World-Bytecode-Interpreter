@@ -22,54 +22,12 @@
 #include "sys.h"
 #include "util.h"
 
-// Libdragon display helpers
+// Display helpers
 typedef uint16_t pixel_t; // 16-bit RGBA (5:5:5:1)
 static const bitdepth_t FRAMEBUFFER_DEPTH = DEPTH_16_BPP;
-static const size_t FRAMEBUFFER_PITCH = sizeof(pixel_t);
 static display_context_t now_drawing = 0;
 extern void *__safe_buffer[];
 #define __get_buffer( x ) (pixel_t *)__safe_buffer[(x)-1]
-
-// Libdragon timer helpers
-struct N64TimerContext {
-	timer_link_t * timer;
-	uint32_t delay_ms;
-	System::TimerCallback callback;
-	void * param;
-	N64TimerContext(System::TimerCallback cb, void *p)
-		: timer(NULL), delay_ms(0)
-		, callback(cb), param(p)
-	{}
-	void start(uint32_t delay) {
-		if (timer) stop();
-		delay_ms = delay;
-		auto trampoline = [](int ovfl, void *ctx) {
-			(*(N64TimerContext *)ctx)();
-		};
-		timer = new_timer_context(
-			TICKS_FROM_MS(delay_ms),
-			TF_ONE_SHOT,
-			trampoline,
-			this
-		);
-	}
-	void stop(void) {
-		delay_ms = 0;
-		if (timer) {
-			delete_timer(timer);
-			timer = NULL;
-		}
-	}
-	void operator()(void) {
-		delay_ms = (*callback)(delay_ms, param);
-		if (delay_ms) {
-			timer->set = TICKS_FROM_MS(delay_ms);
-			timer->flags |= TF_CONTINUOUS;
-		} else {
-			timer->flags &= ~TF_CONTINUOUS;
-		}
-	}
-};
 
 struct N64Stub : System {
 
@@ -97,7 +55,6 @@ struct N64Stub : System {
 	};
 
 	pixel_t palette[NUM_COLORS];
-	N64TimerContext *timer_slots[TIMER_SLOTS_COUNT];
 
 	virtual ~N64Stub() {}
 	virtual void init(const char *title);
@@ -118,9 +75,24 @@ struct N64Stub : System {
 	virtual void lockMutex(void *mutex);
 	virtual void unlockMutex(void *mutex);
 
-	void prepareGfxMode();
-	void cleanupGfxMode();
-	void switchGfxMode();
+	TimerCallback timer_callback;
+	void * timer_param;
+	uint32_t timer_delay; 
+
+	static inline int64_t SAMPLES_FROM_MS(uint32_t milliseconds) {
+		return (((int64_t)milliseconds * SOUND_SAMPLE_RATE) / 1000);
+	}
+
+	static int MixerEventCallback(void *ctx) {
+		N64Stub *stub = (N64Stub *)ctx;
+		if (stub->timer_callback){
+			stub->timer_delay = stub->timer_callback(
+				stub->timer_delay,
+				stub->timer_param
+			);
+		}
+		return SAMPLES_FROM_MS(stub->timer_delay);
+	}
 };
 
 void N64Stub::init(const char *title) {
@@ -159,15 +131,10 @@ void N64Stub::init(const char *title) {
 	memset(&input, 0, sizeof(input));
 	// Clear palette colors
 	memset(&palette, 0, sizeof(palette));
-	// Clear timer slots
-	memset(&timer_slots, 0, sizeof(timer_slots));
 }
 
 void N64Stub::destroy() {
 	// N64 does not actually support quitting!
-	for (int i = 1; i < TIMER_SLOTS_COUNT; i++) {
-		if (timer_slots[i]) removeTimer(i);
-	}
 }
 
 void N64Stub::setPalette(const uint8_t *p) {
@@ -262,26 +229,14 @@ void N64Stub::processEvents() {
 }
 
 void N64Stub::sleep(uint32_t duration) {
-	const int CHUNK_MS = 5;
-	int left = duration;
-	while (left > 0) {
+	while (duration--) {
 		pollAudio();
-		wait_ms(left > CHUNK_MS ? CHUNK_MS : left);
-		left -= CHUNK_MS;
+		wait_ms(1);
 	}
-	pollAudio();
 }
 
 uint32_t N64Stub::getTimeStamp() {
-	static uint64_t total_ticks = 0;
-	static uint32_t prev_ticks = 0;
-
-	const uint32_t curr_ticks = get_ticks();
-	int32_t distance = TICKS_DISTANCE(prev_ticks, curr_ticks);
-	total_ticks += (distance >= 0) ? distance : -distance;
-	prev_ticks = curr_ticks;
-
-	return total_ticks / (TICKS_PER_SECOND / 1000);
+	return timer_ticks() / (TICKS_PER_SECOND / 1000);
 }
 
 void N64Stub::startAudio(AudioCallback callback, void *param) {
@@ -305,50 +260,45 @@ void N64Stub::pollAudio(void) {
 }
 
 int N64Stub::addTimer(uint32_t delay, TimerCallback callback, void *param) {
-	int timerId = 0;
-	for (int i = 1; i < TIMER_SLOTS_COUNT; i++) {
-		if (timer_slots[i] && timer_slots[i]->delay_ms == 0) {
-			removeTimer(timerId);
-		}
-		if (timer_slots[i] == NULL) {
-			timerId = i;
-			break;
-		}
-	}
-	if (timerId) {
-		auto ctx = new N64TimerContext(callback, param);
-		ctx->start(delay);
-		timer_slots[timerId] = ctx;
-	}
-	return timerId;
+	/**
+	 * The N64 system implementation assumes that there will only ever be one
+	 * timer added: the SfxPlayer eventsCallback, which must be synchronized
+	 * with the LibDragon mixer. Instead of using a timer based on CPU ticks,
+	 * register the callback as a mixer event based on the number of samples
+	 * that have been mixed.
+	 */
+	timer_callback = callback;
+	timer_param = param;
+	timer_delay = delay;
+	mixer_add_event(
+		SAMPLES_FROM_MS(delay),
+		&N64Stub::MixerEventCallback,
+		this
+	);
+	return 0;
 }
 
 void N64Stub::removeTimer(int timerId) {
-	N64TimerContext *ctx = timer_slots[timerId];
-	if (ctx) {
-		timer_slots[timerId] = NULL;
-		ctx->stop();
-		delete ctx;
-	}
+	mixer_remove_event(&N64Stub::MixerEventCallback, this);
 }
 
 void *N64Stub::createMutex() {
-	// TODO
+	// N64 implementation is single-threaded; mutex is not needed.
 	return NULL;
 }
 
 void N64Stub::destroyMutex(void *mutex) {
-	// TODO
+	// N64 implementation is single-threaded; mutex is not needed.
 	(void)mutex;
 }
 
 void N64Stub::lockMutex(void *mutex) {
-	// TODO
+	// N64 implementation is single-threaded; mutex is not needed.
 	(void)mutex;
 }
 
 void N64Stub::unlockMutex(void *mutex) {
-	// TODO
+	// N64 implementation is single-threaded; mutex is not needed.
 	(void)mutex;
 }
 
